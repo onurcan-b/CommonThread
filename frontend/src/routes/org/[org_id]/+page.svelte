@@ -4,6 +4,7 @@
 	import StoryCard from '$lib/components/StoryCard.svelte';
 	import StoryPreview from '$lib/components/StoryPreview.svelte';
 	import DataDashboard from '$lib/components/DataDashboard.svelte';
+	import ErrorPopup from '$lib/components/ErrorPopup.svelte';
 
 	import { authRequest } from '$lib/authRequest.js';
 	import { onMount } from 'svelte';
@@ -12,6 +13,7 @@
 
 	const org_id = page.params.org_id;
 
+	let error = $state({ show: false, message: '' });
 	let stories = $state([]);
 	let projectsTotal = $state('...');
 	let storiesTotal = $state('...');
@@ -46,7 +48,16 @@
 			authRequest(`/user`, 'GET', $accessToken, $refreshToken)
 		]);
 
-		console.log('orgResponse', orgResponse.data);
+		for (const response of [storiesResponse, orgResponse, userRequest]) {
+			if (response.error) {
+				// Handle the error
+				console.info('Error:', response.error);
+				error = response.error;
+				error.show = true;
+			}
+		}
+
+		console.log('orgResponse', orgResponse);
 
 		orgData = orgResponse.data;
 
@@ -124,16 +135,18 @@
 	<title>Org Dashboard</title>
 </svelte:head>
 
-<div class="container">
+<ErrorPopup {error} />
+<div class="container" id="org-dashboard">
 	<div class="p-5">
 		<OrgHeader
-			org_name={orgData.name}
+			org_name={orgData.name || 'My Organization'}
 			description="This is a description of my organization"
 			,
-			profile_pic_path={orgData.profile_pic_path}
-			numProjects={projectsTotal}
-			numStories={storiesTotal}
-			orgs={changeOrgs}
+			profile_pic_path={orgData.profile_pic_path ||
+				'https://bulma.io/assets/images/placeholders/96x96.png'}
+			numProjects={projectsTotal || 0}
+			numStories={storiesTotal || 0}
+			orgs={changeOrgs || []}
 			--card-color={themeColor}
 		/>
 	</div>
@@ -227,5 +240,9 @@
 	button.active {
 		background-color: #133335;
 		color: white;
+	}
+
+	.scroll-lock {
+		overflow-y: hidden;
 	}
 </style>

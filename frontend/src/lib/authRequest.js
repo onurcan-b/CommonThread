@@ -1,4 +1,5 @@
 import { ipAddress } from '$lib/store.js';
+import { error } from '@sveltejs/kit';
 
 export async function authRequest(url, method, accessToken, refreshToken, postData) {
 	let data;
@@ -14,19 +15,28 @@ export async function authRequest(url, method, accessToken, refreshToken, postDa
 		// if data is not null, send it as the body
 		body: postData ? JSON.stringify(postData) : null
 	});
-	if (ogResponse.status === 200) {
-		data = await ogResponse.json();
-		return { data, newAccessToken: null };
-	}
 
-	if (ogResponse.status === 299) {
+	if (ogResponse.status === 200) {
+		console.log('Original request successful');
+		data = await ogResponse.json();
+		return { data, newAccessToken: null, error: null };
+	} else if (ogResponse.status === 299) {
 		console.log('need to refresh token');
 		const newAccessToken = await getNewAccessToken(refreshToken);
 		//console.log('newAccessToken', newAccessToken);
 
 		if (!newAccessToken) {
 			console.log('Failed to get new access token');
-			return;
+			return {
+				data: null,
+				newAccessToken: null,
+				error: {
+					status: 500,
+					message: 'Failed to get new access token',
+					buttonText: 'Internal Server Error',
+					redirectPath: '/user'
+				}
+			};
 		}
 		// retry original request with new access token
 		const retryResponse = await fetch(ipAddress + url, {
@@ -41,13 +51,32 @@ export async function authRequest(url, method, accessToken, refreshToken, postDa
 			console.log('Retry request successful');
 			data = await retryResponse.json();
 
-			return { data, newAccessToken: newAccessToken };
+			return { data, newAccessToken: newAccessToken, error: null };
 		} else {
 			console.log('Retry request failed');
-			return;
+
+			return {
+				data: null,
+				newAccessToken: null,
+				error: {
+					status: retryResponse.status,
+					message: 'Retry request failed',
+					statusText: retryResponse.statusText
+				}
+			};
 		}
-	} else {
-		console.log('Original request failed');
+	} else if (!ogResponse.ok) {
+		console.log(ogResponse);
+		return {
+			data: null,
+			newAccessToken: null,
+			error: {
+				status: ogResponse.status,
+				message: ogResponse.statusText,
+				buttonText: 'Return to home',
+				redirectPath: '/user'
+			}
+		};
 	}
 }
 
