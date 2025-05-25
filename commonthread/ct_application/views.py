@@ -18,6 +18,7 @@ from django.http import (
     HttpResponseNotFound,
     HttpResponseForbidden,
     HttpResponseBadRequest,
+    Http404,
 )
 from django.conf import settings
 from .utils import (
@@ -43,6 +44,8 @@ from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Prefetch
+from collections import Counter
+import re
 
 # HANDLERES SET UP -------------------------------------------------------------
 import traceback
@@ -1390,3 +1393,52 @@ def get_org_projects(request, org_id):
 
 
 # EOF. ------------------------------------------------------------------------
+
+# Basic list of stop words (can be expanded or moved to a helper/config)
+STOP_WORDS = [
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "should",
+    "can", "could", "may", "might", "must", "about", "above", "after", "again",
+    "against", "all", "am", "and", "any", "as", "at", "because", "before",
+    "below", "between", "both", "but", "by", "cannot", "com", "couldn't",
+    "did", "didn't", "doing", "don't", "down", "during", "each", "few", "for",
+    "from", "further", "hadn't", "hasn't", "haven't", "having", "he", "he'd",
+    "he'll", "he's", "her", "here", "here's", "hers", "herself", "him", "himself",
+    "his", "how", "how's", "i", "i'd", "i'll", "i'm", "i've", "if", "in", "into",
+    "it", "it's", "its", "itself", "let's", "me", "more", "most", "mustn't",
+    "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only", "or",
+    "other", "ought", "our", "ours", "ourselves", "out", "over", "own", "r",
+    "same", "shan't", "she", "she'd", "she'll", "she's", "shouldn't", "so",
+    "some", "such", "than", "that", "that's", "their", "theirs", "them",
+    "themselves", "then", "there", "there's", "these", "they", "they'd",
+    "they'll", "they're", "they've", "this", "those", "through", "to", "too",
+    "under", "until", "up", "very", "wasn't", "we", "we'd", "we'll", "we're",
+    "we've", "weren't", "what", "what's", "when", "when's", "where", "where's",
+    "which", "while", "who", "who's", "whom", "why", "why's", "with", "won't",
+    "wouldn't", "www", "you", "you'd", "you'll", "you're", "you've", "your",
+    "yours", "yourself", "yourselves"
+] # This list can be refined
+
+@require_GET
+def story_insights_api(request, story_id):
+    try:
+        story = Story.objects.get(pk=story_id)
+    except Story.DoesNotExist:
+        raise Http404("Story not found")
+
+    if not story.text_content or not story.text_content.strip():
+        return JsonResponse({"error": "Story has no text content"}, status=400)
+
+    # Process text content
+    text = story.text_content.lower()
+    words = re.findall(r'[a-z]+', text) # Find words, ignore punctuation/numbers for simplicity
+
+    # Filter stop words and count
+    filtered_words = [word for word in words if word not in STOP_WORDS and len(word) > 1]
+    word_counts = Counter(filtered_words)
+
+    # Get top N most common words (e.g., 50)
+    # The wordcloud library expects [[word, count], ...]
+    most_common_words = [[word, count] for word, count in word_counts.most_common(50)]
+
+    return JsonResponse({"word_frequencies": most_common_words})

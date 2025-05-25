@@ -33,6 +33,7 @@
 		"vite": "^6.2.5"
 	},
 	"dependencies": {
-		"layercake": "^8.4.3"
+		"layercake": "^8.4.3",
+		"wordcloud": "^1.2.2"
 	}
 }

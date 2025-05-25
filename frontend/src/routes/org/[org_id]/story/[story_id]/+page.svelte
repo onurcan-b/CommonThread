@@ -3,6 +3,7 @@
 	import StoryFullView from '$lib/components/StoryFullView.svelte';
 	import AudioPlayer from '$lib/components/audio/AudioPlayer.svelte';
 	import OrgHeader from '$lib/components/OrgHeader.svelte';
+    import WordCloud from '$lib/components/WordCloud.svelte';
 	import { accessToken, refreshToken } from '$lib/store.js';
 	import { authRequest } from '$lib/authRequest.js';
 	import { onMount } from 'svelte';
@@ -10,6 +11,7 @@
 
 	// Page state
 	let themeColor = $state('#133335');
+    let wordCloudData = $state(null); // To store data from the insights API
 
 	// Fetch the data when the component mounts
 	const org_id = $page.params.org_id;
@@ -50,6 +52,9 @@
 		if (orgResponse.newAccessToken) {
 			accessToken.set(orgResponse.newAccessToken);
 		}
+        if (storyResponse.newAccessToken && !orgResponse.newAccessToken) { // Check if token updated by second req
+            accessToken.set(storyResponse.newAccessToken);
+        }
 
 		orgData = orgResponse.data;
 		storyData = storyResponse.data;
@@ -57,6 +62,32 @@
 		includesAudio = storyData.audio_path != '';
 		includesImage = storyData.image_path != '';
 		if (includesAudio || includesImage) media = true;
+
+        // Fetch word cloud data if story text exists
+        if (storyData.text_content && storyData.text_content.trim().length > 0) {
+          try {
+            const insightsResponse = await authRequest(
+              `/api/story/${story_id}/insights/`,
+              'GET',
+              $accessToken,
+              $refreshToken
+            );
+            if (insightsResponse.newAccessToken) {
+                accessToken.set(insightsResponse.newAccessToken);
+            }
+            if (insightsResponse.data && insightsResponse.data.word_frequencies) {
+              wordCloudData = insightsResponse.data.word_frequencies;
+            } else {
+              console.error('Word cloud data not found in API response:', insightsResponse);
+              wordCloudData = []; // Set to empty to avoid errors, show message in component
+            }
+          } catch (error) {
+            console.error('Failed to fetch story insights:', error);
+            wordCloudData = []; // Set to empty on error
+          }
+        } else {
+            wordCloudData = []; // No text content, so no data for word cloud
+        }
 	});
 </script>
 
@@ -87,10 +118,40 @@
 			{#if media}
 				<div class="column is-6">
 					<StoryFullView story={storyData}></StoryFullView>
+                    {#if wordCloudData && wordCloudData.length > 0}
+                      <div class="section wordcloud-section mt-5 card">
+                        <div class="card-content">
+                          <h3 class="title is-4 has-text-centered">Story Word Cloud</h3>
+                          <WordCloud wordFrequencies={wordCloudData} />
+                        </div>
+                      </div>
+                    {:else if storyData.text_content && storyData.text_content.trim().length > 0 && (!wordCloudData || wordCloudData.length === 0) }
+                        <div class="section wordcloud-section mt-5 card">
+                            <div class="card-content">
+                                <h3 class="title is-4 has-text-centered">Story Word Cloud</h3>
+                                <p class="has-text-centered">Could not generate word cloud. There might be too few words after filtering, or an error occurred.</p>
+                            </div>
+                        </div>
+                    {/if}
 				</div>
 			{:else}
 				<div class="column is-10">
 					<StoryFullView story={storyData}></StoryFullView>
+                    {#if wordCloudData && wordCloudData.length > 0}
+                      <div class="section wordcloud-section mt-5 card">
+                        <div class="card-content">
+                          <h3 class="title is-4 has-text-centered">Story Word Cloud</h3>
+                          <WordCloud wordFrequencies={wordCloudData} />
+                        </div>
+                      </div>
+                    {:else if storyData.text_content && storyData.text_content.trim().length > 0 && (!wordCloudData || wordCloudData.length === 0) }
+                        <div class="section wordcloud-section mt-5 card">
+                            <div class="card-content">
+                                <h3 class="title is-4 has-text-centered">Story Word Cloud</h3>
+                                <p class="has-text-centered">Could not generate word cloud. There might be too few words after filtering, or an error occurred.</p>
+                            </div>
+                        </div>
+                    {/if}
 				</div>
 			{/if}
 
@@ -154,4 +215,11 @@
 	li.is-active {
 		color: #133335 !important;
 	}
+
+    .wordcloud-section .card-content {
+        padding: 1.5rem; /* Bulma card content padding */
+    }
+    .wordcloud-section h3 {
+        margin-bottom: 1rem; /* Space below the title */
+    }
 </style>

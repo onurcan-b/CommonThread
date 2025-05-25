@@ -956,3 +956,102 @@ def test_refresh_token_wrong_method(client, refresh_token):
     assert response.status_code == 405
 
 
+# ───────── Story Insights API Tests ─────────
+
+@pytest.mark.django_db
+class TestStoryInsightsAPI:
+    def test_successful_insights_retrieval(self, client, seed):
+        # Use existing user, org, project from seed if suitable, or create new ones
+        user = seed['alice']
+        project = seed['proj1']
+
+        story = Story.objects.create(
+            proj=project,
+            storyteller='John Doe',
+            curator=user,
+            date=datetime.date(2024, 1, 1),
+            text_content='Hello world this is a test. World world test.'
+            # Expected processing: "hello world this is a test world world test"
+            # lowercase: "hello world this is a test world world test"
+            # words (regex [a-z]+): ["hello", "world", "this", "is", "a", "test", "world", "world", "test"]
+            # STOP_WORDS from views.py: "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", ... "this", ... "and", "for"
+            # Filtered (example based on provided STOP_WORDS): ["hello", "world", "test", "world", "world", "test"]
+            # Counts: {"hello": 1, "world": 3, "test": 2}
+        )
+        url = reverse('story_insights_api', args=[story.id])
+        response = client.get(url)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert 'word_frequencies' in data
+        assert isinstance(data['word_frequencies'], list)
+        
+        # Check if list items are lists of [str, int]
+        if data['word_frequencies']:
+            assert isinstance(data['word_frequencies'][0], list)
+            assert isinstance(data['word_frequencies'][0][0], str)
+            assert isinstance(data['word_frequencies'][0][1], int)
+
+        frequencies = dict(data['word_frequencies'])
+        assert frequencies.get('world') == 3
+        assert frequencies.get('test') == 2
+        assert frequencies.get('hello') == 1
+        assert frequencies.get('this') is None # Stop word check
+
+    def test_story_not_found(self, client):
+        url = reverse('story_insights_api', args=[99999]) # Non-existent ID
+        response = client.get(url)
+        assert response.status_code == 404
+        # Django's Http404 might return HTML or nothing, check if JSON for specific error
+        content_type = response.headers.get('Content-Type', '')
+        if 'application/json' in content_type:
+            data = response.json()
+            assert 'error' in data # Or 'detail' depending on Django Rest Framework setup / error handling
+        # else: if not JSON, status code 404 is the primary check
+
+    def test_story_with_no_text_content(self, client, seed):
+        user = seed['alice']
+        project = seed['proj1']
+        story_no_text = Story.objects.create(
+            proj=project, storyteller='Jane Doe', curator=user, date=datetime.date(2024,1,2), text_content=''
+        )
+        url = reverse('story_insights_api', args=[story_no_text.id])
+        response = client.get(url)
+        assert response.status_code == 400
+        data = response.json()
+        assert 'error' in data
+        assert data['error'] == 'Story has no text content'
+
+    def test_specific_word_frequencies_and_stopwords(self, client, seed):
+        user = seed['alice']
+        project = seed['proj1']
+        story_specific = Story.objects.create(
+            proj=project,
+            storyteller='Specific Test',
+            curator=user,
+            date=datetime.date(2024,1,4),
+            text_content='Test test Test. This is a test and a simple example for testing.'
+            # Expected after processing (lowercase, regex [a-z]+, stop word filtered):
+            # text_content: "test test test this is a test and a simple example for testing"
+            # words: ["test", "test", "test", "this", "is", "a", "test", "and", "a", "simple", "example", "for", "testing"]
+            # filtered: ["test", "test", "test", "test", "simple", "example", "testing"]
+            # counts: {"test": 4, "simple": 1, "example": 1, "testing": 1}
+        )
+        url = reverse('story_insights_api', args=[story_specific.id])
+        response = client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+        frequencies = dict(data['word_frequencies'])
+
+        assert frequencies.get('test') == 4
+        assert frequencies.get('simple') == 1
+        assert frequencies.get('example') == 1
+        assert frequencies.get('testing') == 1
+        # Check a few stop words from the STOP_WORDS list in views.py
+        assert frequencies.get('this') is None
+        assert frequencies.get('is') is None
+        assert frequencies.get('a') is None
+        assert frequencies.get('and') is None
+        assert frequencies.get('for') is None
+
+
